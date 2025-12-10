@@ -1,6 +1,7 @@
 # src/ising_model.py
 import numpy as np
 from itertools import product
+from numba import njit, prange
 
 def pair_energy(y: np.ndarray, u: np.ndarray, T: float = 1.0) -> float:
     """
@@ -22,6 +23,38 @@ def partition(u: np.ndarray, T: float = 1.0) -> float:
         y = np.array(bits, dtype=int)
         Z += np.exp(pair_energy(y, u, T=T))
     return Z
+
+# Numba-parallel exact partition function
+@njit(parallel=True)
+def _partition_numba(u: np.ndarray, T: float) -> float:
+    """
+    Numba-accelerated exact partition function for the Ising model.
+    The outer loop over configurations s is parallelized with prange.
+    """
+    p = u.shape[0]
+    n_states = 1 << p  # 2^p
+    total = 0.0
+
+    # Each iteration corresponds to one spin configuration encoded by s
+    for s in prange(n_states):
+        # Compute energy E(y; u) for configuration y determined by bits of s
+        energy = 0.0
+        for i in range(p):
+            # spin y_i ∈ {-1, +1} from bit i of s
+            yi = 1.0 if (s >> i) & 1 else -1.0
+            for j in range(i + 1, p):
+                yj = 1.0 if (s >> j) & 1 else -1.0
+                energy += u[i, j] * yi * yj / T
+        total += np.exp(energy)
+
+    return total
+
+def partition_parallel(u: np.ndarray, T: float = 1.0) -> float:
+    """
+    Exact partition function Z(u) = sum_y exp(sum_{s<t} u_{st} y_s y_t / T).
+    """
+    u = np.asarray(u, dtype=np.float64)
+    return float(_partition_numba(u, T))
 
 def conditional_prob_spin_plus_one(y: np.ndarray, r: int, u: np.ndarray, T: float = 1.0) -> float:
     """
