@@ -1,5 +1,8 @@
-# Ignore everything in this directory
+# Ignore everything in this directory by default
 *
-# Except this file
+
+# Always keep this file
 !.gitignore
 
+# Keep example input txt files
+!*.txt
