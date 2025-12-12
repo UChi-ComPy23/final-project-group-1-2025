@@ -1,7 +1,7 @@
-from src.experiments import run_gibbs_demo, run_mh_parameter_inference
+from src.experiments import run_gibbs, run_mh_parameter_inference
 
-def test_run_gibbs_demo_smoke():
-    u_star, samples = run_gibbs_demo(random_state=0)
+def test_run_gibbs_smoke():
+    u_star, samples = run_gibbs(random_state=0)
     assert samples.ndim == 2
     assert samples.shape[1] == u_star.shape[0]
 
