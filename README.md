@@ -4,7 +4,7 @@ This repository implements simulation and inference methods for sparse Ising gra
 
 - Gibbs sampling for spin configurations  
 - Metropolis–Hastings (MH) sampling for Bayesian estimation of the interaction matrix  
-- (To be completed) Pseudo-likelihood MAP via Proximal Gradient Descent (PGD) 
+- Pseudo-likelihood MAP via Proximal Gradient Descent (PGD) 
 
 Code is modularized under `src/` and fully tested with `pytest`.
 
@@ -30,9 +30,13 @@ test/
 
 ## Run the Program
 
-To run the full project (Gibbs sampling + MH inference), simply execute:
+To run the full project (Gibbs sampling + MH inference + PGD), simply execute:
 ```bash
 python main.py
+```
+To run the Original vs Parallel simply execute:
+```bash
+python main_parallel.py
 ```
 
 ## Testing the Project
@@ -47,35 +51,16 @@ pytest
 
 ## Running Different Examples
 
-Currently, the example Ising models used in the project (such as `u_star` and
-`y_init`) are defined directly inside `src/experiments.py`.
+We implement a clean mechanism for loading examples: the example Ising models used in the project are defined separately saved as `*.txt` inside `examples`.
 
-To run a different example at the moment, you must manually modify these lines
-inside `run_gibbs_demo()`:
+To run a different example at the moment, you just need to modify the `example_path` inside `main.py` or `main_parallel.py`.
 
-```python
-# Inside src/experiments.py
-u_star = <your interaction matrix>
-y_init = <your initial spin configuration>
-```
-After updating these values, simply run:
+After updating these, simply run:
 ```bash
 python main.py
 ```
+or
+```bash
+python main_parallel.py
+```
 
-In the final project, we will implement a clean mechanism for loading examples:
-
-Add an examples/ directory containing predefined Ising model configurations.
-
-Implement functions to read these examples directly.
-
-
-
-
-## Final Work (Upcoming)
-
-The following will be implemented for the final report:
-
-- **Pseudo-likelihood MAP estimator using Proximal Gradient Descent (PGD)**
-- **Symmetry & zero-diagonal constraints**
-- **Accuracy, runtime, and sparsity recovery comparison vs MH**
