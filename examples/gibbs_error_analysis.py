@@ -29,9 +29,11 @@ def compute_errors(u_star, name):
     u_hat_vec = np.mean(samples_u, axis=0)
     u_hat = unvectorize_u(u_hat_vec)
 
+    u_err = frob(u_hat, u_star)
+
     print(f"{name} MODEL:")
-    print(f"  Gibbs Error: {gibbs_err:.4f}")
-    print(f"  u-Estimation Error:{u_err:.4f}\n")
+    print(f"Gibbs Error: {gibbs_err:.4f}")
+    print(f"u-Estimation Error:{u_err:.4f}\n")
 
 
 for name, U in u_variants.items():
