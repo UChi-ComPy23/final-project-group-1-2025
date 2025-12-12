@@ -4,24 +4,29 @@ import matplotlib.pyplot as plt
 
 from .sampling import ising_gibbs_sampler, ising_gibbs_sampler_parallel
 from .utils import vectorize_u, unvectorize_u
-from .inference import make_log_posterior, metropolis_hastings, make_log_posterior_parallel
-from .tools import plot_data
+from .inference import make_log_posterior, metropolis_hastings, make_log_posterior_parallel, pgd_pseudolikelihood_map
+from .tools import load_matrix_from_txt
 
-def run_gibbs_demo(random_state: int = 1):
+
+def run_gibbs(random_state: int = 1, u_txt_path: str = None):
     """
-    Reproduce the small p=5 Gibbs sampling example from the notebook.
+    Produce the Gibbs sampling example
     """
     np.random.seed(random_state)
+    if u_txt_path is None:
+        u_star = np.array([
+            [0, 0.5, 0, 0.5, 0],
+            [0.5, 0, 0.5, 0, 0.5],
+            [0, 0.5, 0, 0.5, 0],
+            [0.5, 0, 0.5, 0, 0],
+            [0, 0.5, 0, 0, 0]
+        ])
+        y_init = np.array([1, -1, -1, 1, 1])
+    else:
+        u_star = load_matrix_from_txt(u_txt_path)
+        p_loaded = u_star.shape[0]
+        y_init = np.ones(p_loaded, dtype=int)
 
-    u_star = np.array([
-        [0,   0.5, 0,   0.5, 0],
-        [0.5, 0,   0.5, 0,   0.5],
-        [0,   0.5, 0,   0.5, 0],
-        [0.5, 0,   0.5, 0,   0],
-        [0,   0.5, 0,   0,   0]
-    ])
-
-    y_init = np.array([1, -1, -1, 1, 1])
     p = len(y_init)
 
     samples = ising_gibbs_sampler(u_star, y_init,
@@ -59,13 +64,12 @@ def run_gibbs_demo(random_state: int = 1):
 
     return u_star, samples
 
-
-def run_mh_parameter_inference(random_state: int = 100):
+def run_mh_parameter_inference(random_state: int = 100, u_txt_path: str = None):
     """
-    Reproduce the MH-on-u example from the notebook (p=5).
+    the MH-on-u example
     """
     # First generate data
-    u_star, samples = run_gibbs_demo(random_state=random_state)
+    u_star, samples = run_gibbs(random_state=random_state, u_txt_path=u_txt_path)
     p = u_star.shape[0]
 
     # Build log posterior
@@ -97,12 +101,12 @@ def run_mh_parameter_inference(random_state: int = 100):
             param_labels.append(f"u_{i+1}{j+1}")
 
     print(f"{'Parameter':<10} {'True':<10} {'Sample_Mean':<12} "
-          f"{'Error':<10} {'Sample_Variance':<10}")
+          f"{'Sample_Variance':<10} {'Error':<10}")
     for idx, label in enumerate(param_labels):
         true_val = true_u_vec[idx]
         est_mean = posterior_means[idx]
-        est_var = posterior_vars[idx]
         error = abs(true_val - est_mean)
+        est_var = posterior_vars[idx]
         print(f"{label:<10} {true_val:<10.3f} {est_mean:<11.3f}  "
               f"{error:<10.3f} {est_var:<10.6f}")
 
@@ -114,24 +118,91 @@ def run_mh_parameter_inference(random_state: int = 100):
 
     return u_star, estimated_u_mat, samples_u
 
+def run_pgd_parameter_inference(
+    random_state: int = 100,
+    u_txt_path: str = None,
+    lambda_reg: float = 50.0,
+    step_size: float = 0.01,
+    max_iter: int = 10_000,
+):
+    # First generate data
+    u_star, samples = run_gibbs(random_state=random_state, u_txt_path=u_txt_path)
+    u_final, losses_final = pgd_pseudolikelihood_map(
+        samples,
+        lambda_reg=lambda_reg,
+        step_size=step_size,
+        max_iter=max_iter,
+    )
 
+    print(f"\nTrue u*:")
+    print(np.round(u_star, 3))
 
+    print(f"\nEstimated u:")
+    print(np.round(u_final, 3))
 
-def run_gibbs_demo_parallel(random_state: int = 1):
+    print(f"\nParameter comparison:")
+    print(f"{'Param':<8} {'True':<8} {'Estimated':<12} {'Error':<10}")
+
+    for i in range(u_star.shape[0]):
+        for j in range(i + 1, u_star.shape[0]):
+            true_val = u_star[i, j]
+            est_val = u_final[i, j]
+            error = est_val - true_val
+
+            param_name = f"u_{i + 1}{j + 1}"
+            print(f"{param_name:<8} {true_val:<8.3f} {est_val:<12.3f} {error:<10.3f}")
+
+    # Loss convergence
+    plt.plot(losses_final)
+    plt.xlabel('Iteration')
+    plt.ylabel('Loss')
+    plt.title('Loss')
+    plt.grid(True, alpha=0.3)
+
+    plt.tight_layout()
+    plt.show()
+
+    fig, axes = plt.subplots(1, 2, figsize=(10, 6))
+
+    # True matrix
+    im1 = axes[0].imshow(u_star, cmap='RdBu_r', vmin=-0.5, vmax=0.5)
+    axes[0].set_title('True u*')
+    axes[0].set_xlabel('Variable Index')
+    axes[0].set_ylabel('Variable Index')
+    fig.colorbar(im1, ax=axes[0])
+
+    # Estimated matrix
+    im2 = axes[1].imshow(u_final, cmap='RdBu_r', vmin=-0.5, vmax=0.5)
+    axes[1].set_title(f'Estimated u')
+    axes[1].set_xlabel('Variable Index')
+    axes[1].set_ylabel('Variable Index')
+    fig.colorbar(im2, ax=axes[1])
+
+    plt.tight_layout()
+    plt.show()
+
+    return u_star, u_final
+
+# Numba parallel accelerated
+def run_gibbs_parallel(random_state: int = 1, u_txt_path: str = None):
     """
-    Reproduce the small p=5 Gibbs sampling example from the notebook.
+    ProduceGibbs sampling example parallel
     """
     np.random.seed(random_state)
+    if u_txt_path is None:
+        u_star = np.array([
+            [0, 0.5, 0, 0.5, 0],
+            [0.5, 0, 0.5, 0, 0.5],
+            [0, 0.5, 0, 0.5, 0],
+            [0.5, 0, 0.5, 0, 0],
+            [0, 0.5, 0, 0, 0]
+        ])
+        y_init = np.array([1, -1, -1, 1, 1])
+    else:
+        u_star = load_matrix_from_txt(u_txt_path)
+        p_loaded = u_star.shape[0]
+        y_init = np.ones(p_loaded, dtype=int)
 
-    u_star = np.array([
-        [0,   0.5, 0,   0.5, 0],
-        [0.5, 0,   0.5, 0,   0.5],
-        [0,   0.5, 0,   0.5, 0],
-        [0.5, 0,   0.5, 0,   0],
-        [0,   0.5, 0,   0,   0]
-    ])
-
-    y_init = np.array([1, -1, -1, 1, 1])
     p = len(y_init)
 
     samples = ising_gibbs_sampler_parallel(u_star, y_init,
@@ -169,13 +240,15 @@ def run_gibbs_demo_parallel(random_state: int = 1):
 
     return u_star, samples
 
-
-def run_mh_parameter_inference_parallel(random_state: int = 100):
+def run_mh_parameter_inference_parallel(random_state: int = 100, u_txt_path: str = None):
     """
-    Reproduce the MH-on-u example from the notebook (p=5).
+    the MH-on-u example parallel
     """
     # First generate data
-    u_star, samples = run_gibbs_demo_parallel(random_state=random_state)
+    u_star, samples = run_gibbs_parallel(
+        random_state=random_state,
+        u_txt_path=u_txt_path,
+    )
     p = u_star.shape[0]
 
     # Build log posterior
@@ -207,12 +280,12 @@ def run_mh_parameter_inference_parallel(random_state: int = 100):
             param_labels.append(f"u_{i+1}{j+1}")
 
     print(f"{'Parameter':<10} {'True':<10} {'Sample_Mean':<12} "
-          f"{'Error':<10} {'Sample_Variance':<10}")
+          f"{'Sample_Variance':<10} {'Error':<10}")
     for idx, label in enumerate(param_labels):
         true_val = true_u_vec[idx]
         est_mean = posterior_means[idx]
-        est_var = posterior_vars[idx]
         error = abs(true_val - est_mean)
+        est_var = posterior_vars[idx]
         print(f"{label:<10} {true_val:<10.3f} {est_mean:<11.3f}  "
               f"{error:<10.3f} {est_var:<10.6f}")
 

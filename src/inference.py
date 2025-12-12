@@ -40,7 +40,6 @@ def metropolis_hastings(log_target,
 
     return samples[burn_in:]
 
-
 def make_log_posterior(data: np.ndarray,
                        p: int,
                        lamb: float = 1.0,
@@ -128,20 +127,131 @@ def make_log_posterior_parallel(data: np.ndarray,
         return log_lik + log_prior
     return log_posterior
 
-# PGD Pseudo-likelihood MAP Pending to do
+# PGD Pseudo-likelihood MAP
+def compute_conditional_probability(y, u_mat, r):
+    p = len(y)
+    A_r = 0
+    for t in range(p):
+        if t != r:
+            A_r += u_mat[r, t] * y[t]
 
-def pgd_pseudolikelihood_map(
-    data: np.ndarray,
-    p: int,
-    lamb: float = 1.0,
-    step_size: float = 1e-2,
-    max_iter: int = 100,
-    tol: float = 1e-5,
-):
-    """
-    Placeholder for the pseudo-likelihood MAP estimator using Proximal Gradient Descent.
+    exp_2A = np.exp(2 * A_r)
+    if y[r] == 1:
+        p_r = exp_2A / (exp_2A + 1)
+    else:  # y_r = -1
+        p_r = 1 / (exp_2A + 1)
 
-    This will be fully implemented in the final project. For the checkpoint,
-    we only define the interface.
+    return p_r, A_r
+
+def compute_negative_log_likelihood(Y, u_mat):
+    N, p = Y.shape
+    neg_ll = 0.0
+
+    for i in range(N):
+        y = Y[i]
+        for r in range(p):
+            p_r, _ = compute_conditional_probability(y, u_mat, r)
+            neg_ll -= np.log(p_r + 1e-15)  # Add small epsilon for stability
+
+    return neg_ll
+
+def compute_gradient(Y, u_mat):
     """
-    raise NotImplementedError("PGD pseudo-likelihood MAP will be implemented in the final project.")
+    Compute gradient of negative pseudo log-likelihood analytically
+    Derived from the conditional probability formula
+    """
+    N, p = Y.shape
+    grad = np.zeros((p, p))
+
+    for i in range(N):
+        y = Y[i]
+
+        for r in range(p):
+
+            A_r = 0
+            for t in range(p):
+                if t != r:
+                    A_r += u_mat[r, t] * y[t]
+
+            z = 2 * y[r] * A_r
+            if z > 0:
+                sigma = 1 / (1 + np.exp(-z))
+            else:
+                exp_z = np.exp(z)
+                sigma = exp_z / (1 + exp_z)
+
+            # Gradient contribution from this conditional
+            for t in range(p):
+                if t != r:
+                    grad_rt = -2 * y[r] * y[t] * (1 - sigma)  # Negative gradient for negative log-likelihood
+                    grad[r, t] += grad_rt
+
+    # Average over samples and enforce symmetry
+    grad = grad / N
+    grad_sym = (grad + grad.T) / 2
+    np.fill_diagonal(grad_sym, 0)
+
+    return grad_sym
+
+def soft_threshold(x, threshold):
+    """Soft thresholding operator for L1 regularization"""
+    return np.sign(x) * np.maximum(np.abs(x) - threshold, 0)
+
+def pgd_pseudolikelihood_map(Y, lambda_reg=10.0, step_size=0.001,
+                              max_iter=1000, tol=1e-6):
+    """
+    Proximal Gradient Descent with corrected gradient computation
+    lambda_reg: regularization parameter (should be larger for weaker regularization)
+                The objective is: negative_log_likelihood + (1/lambda_reg) * ‖u‖₁
+    """
+    N, p = Y.shape
+
+    # Initialize with small values
+    np.random.seed(1)
+    u_mat = np.random.randn(p, p) * 0.01
+    u_mat = (u_mat + u_mat.T) / 2  # Make symmetric
+    np.fill_diagonal(u_mat, 0)  # Zero diagonal
+
+    losses = []
+
+    for iteration in range(max_iter):
+        u_prev = u_mat.copy()
+
+        # Compute gradient
+        grad = compute_gradient(Y, u_mat)
+
+        # Gradient step
+        u_gd = u_mat - step_size * grad
+
+        # Proximal step (soft thresholding)
+        # Threshold = step_size / lambda_reg
+        threshold = step_size / lambda_reg
+
+        u_new = np.zeros((p, p))
+        for i in range(p):
+            for j in range(i + 1, p):
+                u_ij = soft_threshold(u_gd[i, j], threshold)
+                u_new[i, j] = u_ij
+                u_new[j, i] = u_ij
+
+        np.fill_diagonal(u_new, 0)
+        u_mat = u_new
+
+        # Compute loss
+        neg_ll = compute_negative_log_likelihood(Y, u_mat)
+        l1_penalty = np.sum(np.abs(u_mat)) / lambda_reg
+        total_loss = neg_ll + l1_penalty
+        losses.append(total_loss)
+
+        # Check convergence
+        u_change = np.linalg.norm(u_mat - u_prev, 'fro')
+
+        if (iteration % 100 == 0 or iteration == max_iter - 1):
+            print(f"Iter {iteration:4d}: Loss = {total_loss:.6f}, "
+                  f"delta_u = {u_change:.6f}")
+
+        if u_change < tol and iteration > 10:
+            print(f"Converged at iteration {iteration}")
+            break
+
+    return u_mat, losses

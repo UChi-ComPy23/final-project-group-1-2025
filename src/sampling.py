@@ -66,7 +66,6 @@ def _ising_gibbs_core_numba(u, y_init, n_samples, burn_in, T):
     # discard burn-in
     return samples[burn_in:, :]
 
-
 def ising_gibbs_sampler_parallel(u: np.ndarray,
                         y_init: np.ndarray,
                         n_samples: int,
